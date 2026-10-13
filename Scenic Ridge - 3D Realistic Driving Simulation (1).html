@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scenic Ridge - 3D Driving Simulation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Outfit', sans-serif; overflow: hidden; user-select: none; }
+        .font-mono-custom { font-family: 'JetBrains Mono', monospace; }
+        .glass-panel { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.12); }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
+        @keyframes flashRed {
+            0% { background-color: rgba(239, 68, 68, 0); }
+            50% { background-color: rgba(239, 68, 68, 0.35); }
+            100% { background-color: rgba(239, 68, 68, 0); }
+        }
+        .damage-flash { animation: flashRed 0.4s ease-out; }
+    </style>
+</head>
+<body id="body-el" class="bg-slate-950 text-white w-screen h-screen m-0 p-0 overflow-hidden relative">
+
+    <div id="canvas-container" class="absolute inset-0 z-0"></div>
+
+    <!-- Top Bar: Location & Controls Hint -->
+    <div class="absolute top-6 left-6 z-10 flex items-center space-x-3 pointer-events-none">
+        <div class="glass-panel px-4 py-2.5 rounded-2xl flex items-center space-x-3 shadow-2xl">
+            <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+            <div>
+                <h1 class="text-xs font-semibold tracking-wider text-slate-400 uppercase">Scenic Route</h1>
+                <p class="text-sm font-bold tracking-wide">Alpine Ridge Highway</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Right: Environment & Camera Controls -->
+    <div class="absolute top-6 right-6 z-10 flex items-center space-x-3">
+        <!-- Weather / Time Button -->
+        <button id="btn-env" class="glass-panel hover:bg-slate-800/80 transition px-4 py-3 rounded-2xl flex items-center space-x-2 text-sm font-medium shadow-2xl cursor-pointer">
+            <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m3.343-5.657l-.707-.707m12.728 12.728l-.707-.707m0-11.314l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            <span id="env-label">Day</span>
+        </button>
+        <!-- Camera Mode Button -->
+        <button id="btn-cam" class="glass-panel hover:bg-slate-800/80 transition px-4 py-3 rounded-2xl flex items-center space-x-2 text-sm font-medium shadow-2xl cursor-pointer">
+            <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            <span id="cam-label">Chase Cam</span>
+        </button>
+        <!-- Audio Toggle -->
+        <button id="btn-audio" class="glass-panel hover:bg-slate-800/80 transition p-3 rounded-2xl shadow-2xl cursor-pointer" title="Toggle Sound">
+            <svg id="audio-icon" class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+        </button>
+    </div>
+
+    <!-- Bottom Center HUD -->
+    <div class="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-10 flex items-end space-x-4">
+        <!-- Minimap / Radar -->
+        <div class="glass-panel w-36 h-36 rounded-2xl relative overflow-hidden hidden md:block shadow-2xl border border-slate-700/50">
+            <div class="absolute inset-0 bg-slate-950/65"></div>
+            <canvas id="minimap-canvas" width="144" height="144" class="absolute inset-0 w-full h-full"></canvas>
+            <div class="absolute top-2 left-2 text-[10px] font-mono tracking-widest text-slate-400 uppercase">Radar View</div>
+        </div>
+
+        <!-- Main Speedometer Pod -->
+        <div class="glass-panel px-8 py-5 rounded-3xl flex items-center space-x-8 shadow-2xl border border-slate-700/60">
+            <!-- Gear Display -->
+            <div class="flex flex-col items-center justify-center border-r border-slate-700 pr-6">
+                <span class="text-[10px] font-mono tracking-widest text-slate-400 uppercase">Gear</span>
+                <span id="gear-display" class="text-3xl font-bold font-mono-custom text-amber-400 mt-1">1</span>
+            </div>
+
+            <!-- Speed Display -->
+            <div class="flex flex-col items-center justify-center">
+                <div class="flex items-baseline space-x-1">
+                    <span id="speed-display" class="text-5xl font-extrabold font-mono-custom tracking-tight text-white">0</span>
+                    <span class="text-xs font-mono text-slate-400 uppercase">KM/H</span>
+                </div>
+                <!-- RPM Bar -->
+                <div class="w-32 bg-slate-800 h-2 rounded-full mt-3 overflow-hidden p-0.5 border border-slate-700">
+                    <div id="rpm-fill" class="bg-gradient-to-r from-cyan-500 via-emerald-400 to-rose-500 h-full rounded-full transition-all duration-75" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Handbrake Indicator -->
+            <div class="flex flex-col items-center justify-center border-l border-slate-700 pl-6">
+                <span class="text-[10px] font-mono tracking-widest text-slate-400 uppercase">Brake</span>
+                <div id="hb-indicator" class="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 mt-2 flex items-center justify-center text-[10px] font-bold text-slate-400 transition-colors">HB</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controls reminder -->
+    <div class="absolute bottom-6 right-6 z-10 hidden lg:flex flex-col space-y-2 text-right">
+        <div class="glass-panel px-4 py-3 rounded-2xl text-xs text-slate-300 space-y-1 shadow-2xl">
+            <p class="font-semibold text-white mb-1">Realistic Driving Physics</p>
+            <p><kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">W / Up</kbd> Throttle</p>
+            <p><kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">S / Down</kbd> Brake / Reverse</p>
+            <p><kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">A / D</kbd> Realistic Steering</p>
+            <p><kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">Space</kbd> Handbrake Drift</p>
+            <p><kbd class="bg-slate-800 px-1.5 py-0.5 rounded text-cyan-300 font-mono">C / L</kbd> Camera & Environment</p>
+        </div>
+    </div>
+
+    <!-- Mobile Touch Overlay -->
+    <div class="absolute inset-x-0 bottom-24 z-10 flex justify-between px-6 pointer-events-none lg:hidden">
+        <div class="flex space-x-2 pointer-events-auto">
+            <button id="touch-left" class="w-16 h-16 glass-panel rounded-2xl flex items-center justify-center text-2xl active:bg-slate-700 shadow-xl">◀</button>
+            <button id="touch-right" class="w-16 h-16 glass-panel rounded-2xl flex items-center justify-center text-2xl active:bg-slate-700 shadow-xl">▶</button>
+        </div>
+        <div class="flex space-x-2 pointer-events-auto">
+            <button id="touch-brake" class="w-16 h-16 glass-panel rounded-2xl flex items-center justify-center text-xs font-bold active:bg-slate-700 text-rose-400 shadow-xl">BRAKE</button>
+            <button id="touch-accel" class="w-16 h-16 glass-panel rounded-2xl flex items-center justify-center text-xs font-bold active:bg-slate-700 text-emerald-400 shadow-xl">GAS</button>
+        </div>
+    </div>
+
+    <script>
+        class AudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.osc = null;
+                this.gain = null;
+                this.enabled = false;
+            }
+            init() {
+                if (this.ctx) return;
+                try {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                    this.gain = this.ctx.createGain();
+                    this.gain.gain.value = 0.04;
+                    this.osc = this.ctx.createOscillator();
+                    this.osc.type = 'sawtooth';
+                    this.osc.frequency.value = 55;
+                    this.osc.connect(this.gain);
+                    this.gain.connect(this.ctx.destination);
+                    this.osc.start();
+                } catch(e) {
+                    console.warn("AudioContext init error");
+                }
+            }
+            update(speed, rpm) {
+                if (!this.enabled || !this.ctx || !this.osc) return;
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+                const targetFreq = 45 + (rpm / 7000) * 190 + Math.abs(speed) * 1.2;
+                this.osc.frequency.setTargetAtTime(Math.min(targetFreq, 380), this.ctx.currentTime, 0.04);
+            }
+            toggle() {
+                this.enabled = !this.enabled;
+                if (this.enabled) {
+                    this.init();
+                    if (this.gain) this.gain.gain.value = 0.04;
+                } else {
+                    if (this.gain) this.gain.gain.value = 0;
+                }
+                return this.enabled;
+            }
+        }
+
+        const audioEngine = new AudioEngine();
+
+        const state = {
+            posX: 0,
+            posZ: 0,
+            posY: 0,
+            speed: 0,          // m/s
+            maxSpeed: 70,      // ~250 km/h
+            acceleration: 22,
+            braking: 40,
+            friction: 5.0,
+            steeringAngle: 0,
+            maxSteer: 0.55,
+            carAngle: 0,       // Heading angle
+            velocity: new THREE.Vector3(0, 0, 0), // Momentum vector for inertia & drift
+            rpm: 900,
+            gear: 1,
+            handbrake: false,
+            suspensionBounce: 0,
+            envMode: 0,        // 0: Day, 1: Sunset, 2: Night, 3: Foggy
+            cameraMode: 0,     // 0: Chase, 1: Cockpit, 2: Drone
+            keys: { forward: false, backward: false, left: false, right: false, handbrake: false }
+        };
+
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb);
+        scene.fog = new THREE.FogExp2(0x87ceeb, 0.003);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.5, 2500);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        container.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfffaed, 1.5);
+        dirLight.position.set(200, 300, 150);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        dirLight.shadow.camera.near = 0.5;
+        dirLight.shadow.camera.far = 900;
+        const d = 300;
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.bias = -0.0004;
+        scene.add(dirLight);
+
+        const terrainSize = 1600;
+        const terrainSegments = 140;
+        const terrainGeo = new THREE.PlaneGeometry(terrainSize, terrainSize, terrainSegments, terrainSegments);
+        terrainGeo.rotateX(-Math.PI / 2);
+
+        const posAttr = terrainGeo.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            const z = posAttr.getZ(i);
+            let y = Math.sin(x * 0.0035) * Math.cos(z * 0.0035) * 40;
+            y += Math.sin(x * 0.012) * Math.cos(z * 0.012) * 14;
+            // Carve road corridor
+            const roadCurveX = Math.sin(z * 0.0045) * 90 + Math.cos(z * 0.0018) * 140;
+            const roadDist = Math.abs(x - roadCurveX);
+            if (roadDist < 38) {
+                const factor = roadDist / 38;
+                y = y * (1 - factor * 0.8);
+            }
+            posAttr.setY(i, y);
+        }
+        terrainGeo.computeVertexNormals();
+
+        const terrainMat = new THREE.MeshStandardMaterial({
+            color: 0x386638,
+            roughness: 0.88,
+            metalness: 0.04,
+            flatShading: true
+        });
+        const terrain = new THREE.Mesh(terrainGeo, terrainMat);
+        terrain.receiveShadow = true;
+        scene.add(terrain);
+
+        const roadCurvePoints = [];
+        for (let i = -1200; i <= 1200; i += 25) {
+            const z = i;
+            const x = Math.sin(z * 0.0045) * 90 + Math.cos(z * 0.0018) * 140;
+            let y = Math.sin(x * 0.0035) * Math.cos(z * 0.0035) * 40 + Math.sin(x * 0.012) * Math.cos(z * 0.012) * 14;
+            roadCurvePoints.push(new THREE.Vector3(x, y + 0.35, z));
+        }
+        const roadCurve = new THREE.CatmullRomCurve3(roadCurvePoints);
+        const roadGeo = new THREE.TubeGeometry(roadCurve, 500, 10, 8, false);
+        const roadPos = roadGeo.attributes.position;
+        for(let i = 0; i < roadPos.count; i++) {
+            const vx = roadPos.getX(i);
+            const vz = roadPos.getZ(i);
+            let vy = Math.sin(vx * 0.0035) * Math.cos(vz * 0.0035) * 40 + Math.sin(vx * 0.012) * Math.cos(vz * 0.012) * 14 + 0.45;
+            roadPos.setY(i, vy);
+        }
+        roadGeo.computeVertexNormals();
+
+        const roadMat = new THREE.MeshStandardMaterial({
+            color: 0x1e2229,
+            roughness: 0.65,
+            metalness: 0.12
+        });
+        const roadMesh = new THREE.Mesh(roadGeo, roadMat);
+        roadMesh.receiveShadow = true;
+        scene.add(roadMesh);
+
+        const obstacleList = []; // Array to store collidable objects (trees, rocks, barriers)
+        const treeGroup = new THREE.Group();
+        const pineGeo = new THREE.ConeGeometry(3.2, 10, 5);
+        const pineMat = new THREE.MeshStandardMaterial({ color: 0x1b4320, roughness: 0.9 });
+        const trunkGeo = new THREE.CylinderGeometry(0.7, 0.9, 3.5, 5);
+        const trunkMat = new THREE.MeshStandardMaterial({ color: 0x473117, roughness: 0.9 });
+
+        // Rock obstacles for collision testing
+        const rockGeo = new THREE.DodecahedronGeometry(2.2, 1);
+        const rockMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.85, metalness: 0.2 });
+
+        for (let i = 0; i < 350; i++) {
+            const tx = (Math.random() - 0.5) * 1400;
+            const tz = (Math.random() - 0.5) * 1400;
+            const roadX = Math.sin(tz * 0.0045) * 90 + Math.cos(tz * 0.0018) * 140;
+            if (Math.abs(tx - roadX) < 22) continue; // Keep clear of road
+
+            const ty = Math.sin(tx * 0.0035) * Math.cos(tz * 0.0035) * 40 + Math.sin(tx * 0.012) * Math.cos(tz * 0.012) * 14;
+
+            if (Math.random() > 0.25) {
+                // Tree
+                const tree = new THREE.Group();
+                const foliage = new THREE.Mesh(pineGeo, pineMat);
+                foliage.position.y = 5;
+                foliage.castShadow = true;
+                const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+                trunk.position.y = 1.75;
+                trunk.castShadow = true;
+                tree.add(foliage);
+                tree.add(trunk);
+                tree.position.set(tx, ty, tz);
+                const scale = 0.7 + Math.random() * 0.8;
+                tree.scale.set(scale, scale, scale);
+                treeGroup.add(tree);
+                obstacleList.push({ x: tx, z: tz, radius: 2.2 * scale });
+            } else {
+                // Boulder Obstacle
+                const rock = new THREE.Mesh(rockGeo, rockMat);
+                rock.position.set(tx, ty + 1, tz);
+                rock.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+                rock.castShadow = true;
+                rock.receiveShadow = true;
+                scene.add(rock);
+                obstacleList.push({ x: tx, z: tz, radius: 2.0 });
+            }
+        }
+        scene.add(treeGroup);
+
+        const carGroup = new THREE.Group();
+
+        const bodyGeo = new THREE.BoxGeometry(2.1, 0.75, 4.5);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.22, metalness: 0.85 }); // Sleek metallic blue
+        const carBody = new THREE.Mesh(bodyGeo, bodyMat);
+        carBody.position.y = 0.75;
+        carBody.castShadow = true;
+        carGroup.add(carBody);
+
+        const cabinGeo = new THREE.BoxGeometry(1.7, 0.65, 2.3);
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.9, transparent: true, opacity: 0.88 });
+        const carCabin = new THREE.Mesh(cabinGeo, cabinMat);
+        carCabin.position.set(0, 1.35, -0.2);
+        carCabin.castShadow = true;
+        carGroup.add(carCabin);
+
+        const wheelGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.32, 24);
+        wheelGeo.rotateZ(Math.PI / 2);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+
+        const wheels = [];
+        const wheelPositions = [
+            [-1.05, 0.42, 1.35],
+            [1.05, 0.42, 1.35],
+            [-1.05, 0.42, -1.35],
+            [1.05, 0.42, -1.35]
+        ];
+
+        wheelPositions.forEach((pos, idx) => {
+            const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+            wheel.position.set(...pos);
+            wheel.castShadow = true;
+            carGroup.add(wheel);
+            wheels.push(wheel);
+        });
+
+        const headlightGeo = new THREE.BoxGeometry(0.4, 0.15, 0.1);
+        const headlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const hlLeft = new THREE.Mesh(headlightGeo, headlightMat);
+        hlLeft.position.set(-0.7, 0.75, 2.26);
+        const hlRight = new THREE.Mesh(headlightGeo, headlightMat);
+        hlRight.position.set(0.7, 0.75, 2.26);
+        carGroup.add(hlLeft);
+        carGroup.add(hlRight);
+
+        scene.add(carGroup);
+
+        const mmCanvas = document.getElementById('minimap-canvas');
+        const mmCtx = mmCanvas.getContext('2d');
+
+        function updateMinimap() {
+            mmCtx.clearRect(0, 0, mmCanvas.width, mmCanvas.height);
+            mmCtx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            mmCtx.fillRect(0, 0, mmCanvas.width, mmCanvas.height);
+
+            mmCtx.strokeStyle = '#475569';
+            mmCtx.lineWidth = 4;
+            mmCtx.beginPath();
+            for (let i = 0; i < roadCurvePoints.length; i++) {
+                const pt = roadCurvePoints[i];
+                const mx = (pt.x + 400) / 800 * mmCanvas.width;
+                const my = (pt.z + 400) / 800 * mmCanvas.height;
+                if (i === 0) mmCtx.moveTo(mx, my);
+                else mmCtx.lineTo(mx, my);
+            }
+            mmCtx.stroke();
+
+            const carMx = (state.posX + 400) / 800 * mmCanvas.width;
+            const carMy = (state.posZ + 400) / 800 * mmCanvas.height;
+            mmCtx.fillStyle = '#38bdf8';
+            mmCtx.beginPath();
+            mmCtx.arc(carMx, carMy, 4.5, 0, Math.PI * 2);
+            mmCtx.fill();
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') state.keys.forward = true;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') state.keys.backward = true;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') state.keys.left = true;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') state.keys.right = true;
+            if (e.code === 'Space') { state.keys.handbrake = true; e.preventDefault(); }
+            if (e.code === 'KeyC') toggleCamera();
+            if (e.code === 'KeyL') toggleEnvironment();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.code === 'KeyW' || e.code === 'ArrowUp') state.keys.forward = false;
+            if (e.code === 'KeyS' || e.code === 'ArrowDown') state.keys.backward = false;
+            if (e.code === 'KeyA' || e.code === 'ArrowLeft') state.keys.left = false;
+            if (e.code === 'KeyD' || e.code === 'ArrowRight') state.keys.right = false;
+            if (e.code === 'Space') state.keys.handbrake = false;
+        });
+
+        const bindTouch = (id, keyName) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('touchstart', (e) => { state.keys[keyName] = true; e.preventDefault(); });
+            el.addEventListener('touchend', (e) => { state.keys[keyName] = false; e.preventDefault(); });
+            el.addEventListener('mousedown', () => { state.keys[keyName] = true; });
+            el.addEventListener('mouseup', () => { state.keys[keyName] = false; });
+        };
+        bindTouch('touch-left', 'left');
+        bindTouch('touch-right', 'right');
+        bindTouch('touch-accel', 'forward');
+        bindTouch('touch-brake', 'backward');
+
+        document.getElementById('btn-audio').addEventListener('click', () => {
+            const active = audioEngine.toggle();
+            const icon = document.getElementById('audio-icon');
+            icon.style.color = active ? '#34d399' : '#94a3b8';
+        });
+
+        document.getElementById('btn-cam').addEventListener('click', toggleCamera);
+        document.getElementById('btn-env').addEventListener('click', toggleEnvironment);
+
+        function toggleCamera() {
+            state.cameraMode = (state.cameraMode + 1) % 3;
+            const labels = ['Chase Cam', 'Cockpit Cam', 'Drone Cam'];
+            document.getElementById('cam-label').innerText = labels[state.cameraMode];
+        }
+
+        function toggleEnvironment() {
+            state.envMode = (state.envMode + 1) % 4;
+            const labels = ['Day', 'Sunset', 'Night', 'Foggy'];
+            document.getElementById('env-label').innerText = labels[state.envMode];
+
+            if (state.envMode === 0) {
+                scene.background.setHex(0x87ceeb);
+                scene.fog.color.setHex(0x87ceeb);
+                scene.fog.density = 0.003;
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.65;
+                dirLight.color.setHex(0xfffaed);
+                dirLight.intensity = 1.5;
+            } else if (state.envMode === 1) {
+                scene.background.setHex(0xf97316);
+                scene.fog.color.setHex(0xf97316);
+                scene.fog.density = 0.004;
+                ambientLight.color.setHex(0xf43f5e);
+                ambientLight.intensity = 0.55;
+                dirLight.color.setHex(0xfb923c);
+                dirLight.intensity = 1.6;
+            } else if (state.envMode === 2) {
+                scene.background.setHex(0x04060b);
+                scene.fog.color.setHex(0x04060b);
+                scene.fog.density = 0.005;
+                ambientLight.color.setHex(0x38bdf8);
+                ambientLight.intensity = 0.25;
+                dirLight.color.setHex(0x93c5fd);
+                dirLight.intensity = 0.35;
+            } else if (state.envMode === 3) {
+                scene.background.setHex(0x64748b);
+                scene.fog.color.setHex(0x64748b);
+                scene.fog.density = 0.016;
+                ambientLight.color.setHex(0xffffff);
+                ambientLight.intensity = 0.7;
+                dirLight.color.setHex(0xe2e8f0);
+                dirLight.intensity = 0.6;
+            }
+        }
+
+        let lastTime = performance.now();
+
+        function triggerDamageFlash() {
+            const bodyEl = document.getElementById('body-el');
+            bodyEl.classList.add('damage-flash');
+            setTimeout(() => { bodyEl.classList.remove('damage-flash'); }, 400);
+        }
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            const isAccelerating = state.keys.forward;
+            const isBraking = state.keys.backward;
+            const isSteeringLeft = state.keys.left;
+            const isSteeringRight = state.keys.right;
+            state.handbrake = state.keys.handbrake;
+
+            // Throttle and braking physics
+            if (isAccelerating) {
+                state.speed += state.acceleration * dt;
+                if (state.speed > state.maxSpeed) state.speed = state.maxSpeed;
+            } else if (isBraking) {
+                state.speed -= state.braking * dt;
+                if (state.speed < -22) state.speed = -22;
+            } else {
+                if (state.speed > 0) {
+                    state.speed -= state.friction * dt;
+                    if (state.speed < 0) state.speed = 0;
+                } else if (state.speed < 0) {
+                    state.speed += state.friction * dt;
+                    if (state.speed > 0) state.speed = 0;
+                }
+            }
+
+            if (state.handbrake) {
+                state.speed -= Math.sign(state.speed) * state.braking * 1.8 * dt;
+            }
+
+            // Steering dynamics with momentum drift
+            const speedFactor = Math.max(0.25, 1 - (Math.abs(state.speed) / state.maxSpeed) * 0.65);
+            if (isSteeringLeft) {
+                state.steeringAngle += 3.0 * dt;
+                if (state.steeringAngle > state.maxSteer) state.steeringAngle = state.maxSteer;
+                state.carAngle += state.steeringAngle * (state.speed / 24) * dt * speedFactor;
+            } else if (isSteeringRight) {
+                state.steeringAngle -= 3.0 * dt;
+                if (state.steeringAngle < -state.maxSteer) state.steeringAngle = -state.maxSteer;
+                state.carAngle += state.steeringAngle * (state.speed / 24) * dt * speedFactor;
+            } else {
+                state.steeringAngle *= Math.pow(0.005, dt);
+            }
+
+            // Calculate forward heading vector
+            const forwardDir = new THREE.Vector3(Math.sin(state.carAngle), 0, Math.cos(state.carAngle));
+            const targetVelocity = forwardDir.clone().multiplyScalar(state.speed);
+
+            // Inertia damping for realistic slide / drift feel
+            state.velocity.lerp(targetVelocity, state.handbrake ? 0.08 : 0.35);
+
+            // Update proposed position
+            let nextX = state.posX + state.velocity.x * dt;
+            let nextZ = state.posZ + state.velocity.z * dt;
+
+            // --- COLLISION DETECTION WITH OBSTACLES (TREES & ROCKS) ---
+            const carRadius = 1.6;
+            for (let i = 0; i < obstacleList.length; i++) {
+                const obs = obstacleList[i];
+                const dx = nextX - obs.x;
+                const dz = nextZ - obs.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist < (carRadius + obs.radius)) {
+                    // Collision response: bounce back & dampen speed
+                    state.speed = -state.speed * 0.3;
+                    state.velocity.negate().multiplyScalar(0.3);
+                    triggerDamageFlash();
+                    nextX = state.posX; // Revert movement
+                    nextZ = state.posZ;
+                    break;
+                }
+            }
+
+            // Boundary limits
+            if (Math.abs(nextX) > 750 || Math.abs(nextZ) > 750) {
+                state.speed = -state.speed * 0.5;
+                nextX = state.posX;
+                nextZ = state.posZ;
+                triggerDamageFlash();
+            }
+
+            state.posX = nextX;
+            state.posZ = nextZ;
+
+            // Sample terrain height at car position
+            const terrainY = Math.sin(state.posX * 0.0035) * Math.cos(state.posZ * 0.0035) * 40 +
+                             Math.sin(state.posX * 0.012) * Math.cos(state.posZ * 0.012) * 14 + 0.5;
+            state.posY = terrainY;
+
+            // Update car transform
+            carGroup.position.set(state.posX, state.posY, state.posZ);
+            carGroup.rotation.y = state.carAngle;
+
+            state.suspensionBounce = Math.sin(now * 0.018) * (Math.abs(state.speed) * 0.0035);
+            carBody.position.y = 0.75 + state.suspensionBounce;
+
+            // Rotate wheels
+            const wheelRotSpeed = (state.speed * dt) / 0.42;
+            wheels.forEach((w, idx) => {
+                w.rotation.x += wheelRotSpeed;
+                if (idx < 2) {
+                    w.rotation.y = state.steeringAngle;
+                }
+            });
+
+            // RPM & Gear calculation
+            state.rpm = 900 + Math.abs(state.speed) * 90;
+            if (state.rpm > 7000) state.rpm = 7000;
+            if (Math.abs(state.speed) > 48) state.gear = 4;
+            else if (Math.abs(state.speed) > 28) state.gear = 3;
+            else if (Math.abs(state.speed) > 12) state.gear = 2;
+            else state.gear = 1;
+
+            audioEngine.update(state.speed, state.rpm);
+
+            // --- CAMERA TRACKING MODES ---
+            const idealOffset = new THREE.Vector3();
+            const idealLookAt = new THREE.Vector3();
+
+            if (state.cameraMode === 0) {
+                // Chase Cam
+                idealOffset.set(0, 3.8, -9).applyAxisAngle(new THREE.Vector3(0, 1, 0), state.carAngle);
+                idealOffset.add(carGroup.position);
+                camera.position.lerp(idealOffset, 0.12);
+
+                idealLookAt.set(0, 1.5, 3.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), state.carAngle);
+                idealLookAt.add(carGroup.position);
+                camera.lookAt(idealLookAt);
+            } else if (state.cameraMode === 1) {
+                // Cockpit Cam
+                const cockpitPos = new THREE.Vector3(0, 1.4, 0.1).applyAxisAngle(new THREE.Vector3(0, 1, 0), state.carAngle).add(carGroup.position);
+                camera.position.copy(cockpitPos);
+
+                idealLookAt.set(0, 1.4, 30).applyAxisAngle(new THREE.Vector3(0, 1, 0), state.carAngle);
+                idealLookAt.add(carGroup.position);
+                camera.lookAt(idealLookAt);
+            } else if (state.cameraMode === 2) {
+                // Drone Cam
+                const time = now * 0.0004;
+                camera.position.set(
+                    state.posX + Math.cos(time) * 40,
+                    state.posY + 20,
+                    state.posZ + Math.sin(time) * 40
+                );
+                camera.lookAt(carGroup.position);
+            }
+
+            // Update HUD
+            document.getElementById('speed-display').innerText = Math.round(Math.abs(state.speed) * 3.6);
+            document.getElementById('gear-display').innerText = state.gear;
+            document.getElementById('rpm-fill').style.width = (state.rpm / 7000) * 100 + '%';
+
+            const hbEl = document.getElementById('hb-indicator');
+            if (state.handbrake) {
+                hbEl.style.backgroundColor = '#f43f5e';
+                hbEl.style.color = '#ffffff';
+            } else {
+                hbEl.style.backgroundColor = '#1e293b';
+                hbEl.style.color = '#94a3b8';
+            }
+
+            updateMinimap();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
